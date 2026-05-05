@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>학원 출결 키오스크</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif; overflow: hidden; }
+  body { background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%); user-select: none; -webkit-user-select: none; color: #0f172a; }
+  button { font-family: inherit; cursor: pointer; }
+  input, select, textarea { font-family: inherit; }
+
+  #kiosk-mode { height: 100vh; display: flex; flex-direction: column; }
+  .kiosk-header { text-align: center; padding: 20px 16px 12px; position: relative; }
+  .kiosk-header h1 { font-size: 32px; color: #0c4a6e; font-weight: 800; letter-spacing: -1px; }
+  .kiosk-header .clock { font-size: 16px; color: #475569; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .mode-badge { position: absolute; top: 14px; left: 14px; font-size: 11px; padding: 4px 10px; border-radius: 12px; font-weight: 700; }
+  .mode-badge.manual { background: #fef3c7; color: #92400e; }
+  .mode-badge.auto { background: #d1fae5; color: #047857; }
+  .admin-trigger { position: absolute; top: 12px; right: 12px; background: rgba(255,255,255,0.6); border: 1px solid #cbd5e1; width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; color: #64748b; }
+  .admin-trigger:hover { background: white; }
+
+  .kiosk-main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 12px; }
+  .kiosk-container { width: 100%; max-width: 460px; }
+  .kiosk-prompt { text-align: center; font-size: 22px; color: #334155; margin-bottom: 18px; font-weight: 700; }
+  .kiosk-prompt small { display: block; font-size: 14px; color: #64748b; margin-top: 4px; font-weight: 400; }
+
+  .pin-display { background: white; border: 3px solid #0284c7; border-radius: 16px; padding: 16px; display: flex; justify-content: center; gap: 12px; margin-bottom: 16px; box-shadow: 0 4px 16px rgba(2, 132, 199, 0.12); }
+  .pin-dot { width: 56px; height: 72px; border: 2px solid #cbd5e1; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 800; color: #0c4a6e; background: #f8fafc; transition: all 0.15s; }
+  .pin-dot.filled { border-color: #0284c7; background: #e0f2fe; }
+
+  .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+  .key { background: white; border: 2px solid #e2e8f0; border-radius: 12px; padding: 22px 0; font-size: 26px; font-weight: 700; color: #1e293b; transition: all 0.1s; box-shadow: 0 2px 4px rgba(0,0,0,0.04); }
+  .key:active { background: #f1f5f9; transform: translateY(1px); }
+  .key.action { background: #f8fafc; color: #64748b; font-size: 18px; }
+
+  .submit-btn { width: 100%; padding: 22px; background: #0284c7; color: white; border: none; border-radius: 12px; font-size: 22px; font-weight: 800; transition: all 0.15s; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); }
+  .submit-btn:active:not(:disabled) { transform: translateY(2px); }
+  .submit-btn:disabled { background: #cbd5e1; box-shadow: none; cursor: not-allowed; }
+
+  .overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(15, 23, 42, 0.5); backdrop-filter: blur(4px); z-index: 50; padding: 16px; }
+  .overlay.active { display: flex; }
+  .result-card { background: white; border-radius: 24px; padding: 36px 28px; max-width: 420px; width: 100%; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.2); animation: pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); max-height: 90vh; overflow-y: auto; }
+  @keyframes pop { from { transform: scale(0.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .result-icon { width: 80px; height: 80px; border-radius: 50%; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; font-size: 44px; font-weight: 800; }
+  .result-icon.success { background: #d1fae5; color: #059669; }
+  .result-icon.error { background: #fee2e2; color: #dc2626; }
+  .result-icon.warn { background: #fef3c7; color: #d97706; }
+  .result-icon.info { background: #dbeafe; color: #2563eb; }
+  .result-icon.sending { background: #dbeafe; color: #2563eb; animation: spin 1s linear infinite; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .result-title { font-size: 24px; font-weight: 800; margin-bottom: 8px; }
+  .result-detail { font-size: 16px; color: #475569; margin-bottom: 18px; line-height: 1.5; }
+
+  .student-list { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+  .student-option { background: #f1f5f9; border: 2px solid #e2e8f0; border-radius: 12px; padding: 14px; text-align: left; transition: all 0.15s; }
+  .student-option:active { background: #e0f2fe; border-color: #0284c7; }
+  .student-name { font-size: 18px; font-weight: 700; }
+  .student-class { font-size: 13px; color: #64748b; margin-top: 2px; }
+
+  .sms-preview { background: #f0fdf4; border: 1px solid #86efac; border-radius: 12px; padding: 14px; margin-top: 14px; text-align: left; }
+  .sms-preview-label { font-size: 11px; color: #15803d; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .sms-preview-content { font-size: 14px; color: #14532d; line-height: 1.5; word-break: keep-all; }
+  .sms-preview-meta { font-size: 11px; color: #16a34a; margin-top: 6px; }
+  .sms-actions { display: flex; gap: 8px; margin-top: 12px; }
+  .sms-action-btn { flex: 1; padding: 10px; border: 1px solid #16a34a; background: white; color: #15803d; border-radius: 8px; font-size: 13px; font-weight: 600; }
+  .sms-action-btn:active { background: #f0fdf4; }
+  .countdown { font-size: 12px; color: #94a3b8; margin-top: 12px; }
+
+  .admin-overlay { position: fixed; inset: 0; background: white; display: none; flex-direction: column; z-index: 100; }
+  .admin-overlay.active { display: flex; }
+  .admin-header { background: #0c4a6e; color: white; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+  .admin-header h2 { font-size: 18px; font-weight: 800; }
+  .admin-close { background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px 14px; border-radius: 8px; font-size: 14px; font-weight: 600; }
+  .admin-tabs { display: flex; border-bottom: 1px solid #e2e8f0; background: #f8fafc; flex-shrink: 0; overflow-x: auto; }
+  .admin-tab { flex: 1; min-width: 100px; padding: 14px 10px; border: none; background: transparent; font-size: 14px; font-weight: 600; color: #64748b; border-bottom: 3px solid transparent; }
+  .admin-tab.active { color: #0c4a6e; border-bottom-color: #0c4a6e; background: white; }
+  .admin-content { flex: 1; overflow-y: auto; padding: 20px; max-width: 900px; width: 100%; margin: 0 auto; }
+  .admin-section { margin-bottom: 24px; }
+  .admin-section h3 { font-size: 16px; font-weight: 800; color: #0c4a6e; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid #e0f2fe; display: flex; justify-content: space-between; align-items: center; }
+
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .form-grid.full { grid-template-columns: 1fr; }
+  .form-field { display: flex; flex-direction: column; gap: 4px; }
+  .form-field label { font-size: 13px; font-weight: 600; color: #475569; }
+  .form-field input, .form-field select, .form-field textarea { padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 15px; transition: border-color 0.15s; }
+  .form-field input:focus, .form-field select:focus, .form-field textarea:focus { outline: none; border-color: #0284c7; }
+  .form-field small { font-size: 12px; color: #64748b; }
+  .btn { padding: 10px 18px; border-radius: 8px; border: none; font-size: 14px; font-weight: 700; transition: all 0.15s; }
+  .btn-primary { background: #0284c7; color: white; }
+  .btn-primary:hover { background: #0369a1; }
+  .btn-secondary { background: #e2e8f0; color: #1e293b; }
+  .btn-secondary:hover { background: #cbd5e1; }
+  .btn-danger { background: #dc2626; color: white; }
+  .btn-danger:hover { background: #b91c1c; }
+  .btn-sm { padding: 6px 12px; font-size: 12px; }
+
+  .student-table { width: 100%; border-collapse: collapse; font-size: 14px; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  .student-table th { background: #f1f5f9; padding: 10px 12px; text-align: left; font-size: 12px; color: #475569; font-weight: 700; }
+  .student-table td { padding: 12px; border-top: 1px solid #f1f5f9; }
+  .pin-badge { font-family: 'Courier New', monospace; font-weight: 800; color: #0284c7; background: #e0f2fe; padding: 4px 10px; border-radius: 6px; display: inline-block; }
+  .pin-badge.collision { background: #fef3c7; color: #92400e; }
+  .empty-state { text-align: center; padding: 40px; color: #94a3b8; }
+
+  .log-list { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  .log-entry { display: grid; grid-template-columns: 90px 1fr 110px; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #f1f5f9; align-items: center; font-size: 14px; }
+  .log-entry:last-child { border-bottom: none; }
+  .log-time { color: #475569; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .log-name { font-weight: 700; }
+  .log-status { text-align: right; font-size: 11px; padding: 4px 10px; border-radius: 4px; font-weight: 700; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .stat-card { background: white; padding: 16px; border-radius: 8px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+  .stat-value { font-size: 28px; font-weight: 800; color: #0c4a6e; }
+  .stat-label { font-size: 12px; color: #64748b; margin-top: 4px; }
+
+  .help-box { background: #eff6ff; border-left: 4px solid #2563eb; padding: 12px 16px; border-radius: 4px; margin: 12px 0; font-size: 14px; line-height: 1.6; }
+  .help-box.warn { background: #fef3c7; border-color: #d97706; color: #78350f; }
+
+  .toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #0f172a; color: white; padding: 12px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; box-shadow: 0 8px 20px rgba(0,0,0,0.2); z-index: 300; animation: slideDown 0.3s; max-width: 90vw; }
+  @keyframes slideDown { from { transform: translateX(-50%) translateY(-30px); opacity: 0; } to { transform: translateX(-50%) translateY(0); opacity: 1; } }
+
+  .switch { position: relative; display: inline-block; width: 50px; height: 28px; vertical-align: middle; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; cursor: pointer; inset: 0; background: #cbd5e1; transition: 0.3s; border-radius: 28px; }
+  .slider:before { position: absolute; content: ""; height: 22px; width: 22px; left: 3px; bottom: 3px; background: white; transition: 0.3s; border-radius: 50%; }
+  input:checked + .slider { background: #059669; }
+  input:checked + .slider:before { transform: translateX(22px); }
+
+  @media (max-width: 600px) {
+    .kiosk-header h1 { font-size: 24px; }
+    .pin-dot { width: 48px; height: 60px; font-size: 28px; }
+    .key { padding: 18px 0; font-size: 22px; }
+    .form-grid { grid-template-columns: 1fr; }
+    .student-table { font-size: 12px; }
+    .student-table td, .student-table th { padding: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="kiosk-mode">
+  <div class="kiosk-header">
+    <span class="mode-badge manual" id="modeBadge">수동 모드</span>
+    <h1 id="academyName">○○학원</h1>
+    <div class="clock" id="clock"></div>
+    <button class="admin-trigger" onclick="openAdminLogin()" title="관리자">⚙️</button>
+  </div>
+
+  <div class="kiosk-main">
+    <div class="kiosk-container">
+      <div class="kiosk-prompt">
+        4자리 번호를 눌러주세요
+        <small>부모님 핸드폰 뒤 4자리 또는 학원에서 받은 번호</small>
+      </div>
+
+      <div class="pin-display" id="pinDisplay">
+        <div class="pin-dot"></div>
+        <div class="pin-dot"></div>
+        <div class="pin-dot"></div>
+        <div class="pin-dot"></div>
+      </div>
+
+      <div class="keypad">
+        <button class="key" data-key="1">1</button>
+        <button class="key" data-key="2">2</button>
+        <button class="key" data-key="3">3</button>
+        <button class="key" data-key="4">4</button>
+        <button class="key" data-key="5">5</button>
+        <button class="key" data-key="6">6</button>
+        <button class="key" data-key="7">7</button>
+        <button class="key" data-key="8">8</button>
+        <button class="key" data-key="9">9</button>
+        <button class="key action" data-key="clear">전체삭제</button>
+        <button class="key" data-key="0">0</button>
+        <button class="key action" data-key="back">⌫</button>
+      </div>
+
+      <button class="submit-btn" id="submitBtn" disabled>전송</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="result-card" id="resultCard"></div>
+</div>
+
+<div class="overlay" id="adminLoginOverlay">
+  <div class="result-card">
+    <div class="result-icon info">🔐</div>
+    <div class="result-title">관리자 인증</div>
+    <div class="result-detail">관리자 PIN 4자리를 입력하세요</div>
+    <div class="pin-display" style="margin-top: 16px;">
+      <div class="pin-dot"></div><div class="pin-dot"></div><div class="pin-dot"></div><div class="pin-dot"></div>
+    </div>
+    <div class="keypad" style="margin-top: 12px;">
+      <button class="key" data-admin-key="1">1</button>
+      <button class="key" data-admin-key="2">2</button>
+      <button class="key" data-admin-key="3">3</button>
+      <button class="key" data-admin-key="4">4</button>
+      <button class="key" data-admin-key="5">5</button>
+      <button class="key" data-admin-key="6">6</button>
+      <button class="key" data-admin-key="7">7</button>
+      <button class="key" data-admin-key="8">8</button>
+      <button class="key" data-admin-key="9">9</button>
+      <button class="key action" data-admin-key="clear">삭제</button>
+      <button class="key" data-admin-key="0">0</button>
+      <button class="key action" data-admin-key="cancel">취소</button>
+    </div>
+    <div style="font-size: 11px; color: #94a3b8; margin-top: 8px;">초기 비밀번호: 8888</div>
+  </div>
+</div>
+
+<div class="admin-overlay" id="adminPanel">
+  <div class="admin-header">
+    <h2>📋 관리자 화면 - <span id="academyNameAdmin">○○학원</span></h2>
+    <button class="admin-close" onclick="closeAdmin()">키오스크로 ✕</button>
+  </div>
+  <div class="admin-tabs">
+    <button class="admin-tab active" data-tab="dashboard">📊 오늘 현황</button>
+    <button class="admin-tab" data-tab="students">🧒 학생 관리</button>
+    <button class="admin-tab" data-tab="log">📜 출결 로그</button>
+    <button class="admin-tab" data-tab="settings">⚙️ 설정</button>
+    <button class="admin-tab" data-tab="auto">🚀 자동발송</button>
+    <button class="admin-tab" data-tab="backup">💾 백업/복구</button>
+  </div>
+  <div class="admin-content">
+
+    <div class="tab-pane" data-pane="dashboard">
+      <div class="admin-section">
+        <h3>📊 오늘 현황 <button class="btn btn-sm btn-secondary" onclick="renderAll()">새로고침</button></h3>
+        <div class="stats-grid" id="statsGrid"></div>
+      </div>
+      <div class="admin-section">
+        <h3>📜 오늘 등원한 학생</h3>
+        <div class="log-list" id="todayLog"></div>
+      </div>
+      <div class="admin-section" id="pendingSmsSection">
+        <h3>📤 보내야 할 SMS (수동 발송 대기)</h3>
+        <div class="help-box">자동 발송 모드 OFF일 때 표시됩니다. 알리고 단체문자 또는 본인 폰으로 직접 발송 후 ✓ 표시.</div>
+        <div class="log-list" id="pendingSms"></div>
+      </div>
+      <div class="admin-section" id="failedSmsSection" hidden>
+        <h3>⚠️ 발송 실패 — 재시도 필요</h3>
+        <div class="log-list" id="failedSms"></div>
+      </div>
+    </div>
+
+    <div class="tab-pane" data-pane="students" hidden>
+      <div class="admin-section">
+        <h3>🧒 학생 추가 <button class="btn btn-sm btn-secondary" onclick="toggleCsvImport()">📋 CSV 일괄 등록</button></h3>
+        <div id="csvImportBox" hidden style="background:#f8fafc;padding:14px;border-radius:8px;margin-bottom:12px;">
+          <small style="color:#475569;">형식: <code>이름,부모님이름,부모핸드폰,반,커스텀PIN(선택)</code></small>
+          <textarea id="csvText" rows="5" style="width:100%;margin-top:8px;font-family:monospace;font-size:13px;border:1px solid #cbd5e1;border-radius:6px;padding:8px;" placeholder="홍길동,홍부모,01012345678,초등4학년,
+김철수,김아빠,01098765432,초등3학년,"></textarea>
+          <div style="margin-top:8px;display:flex;gap:8px;">
+            <button class="btn btn-sm btn-primary" onclick="importCsv()">가져오기</button>
+            <button class="btn btn-sm btn-secondary" onclick="toggleCsvImport()">취소</button>
+          </div>
+        </div>
+        <div id="studentForm" style="background:#f8fafc;padding:14px;border-radius:8px;">
+          <input type="hidden" id="studentId">
+          <div class="form-grid">
+            <div class="form-field"><label>학생 이름 *</label><input type="text" id="studentName" placeholder="예: 홍길동"></div>
+            <div class="form-field"><label>반 / 학년</label><input type="text" id="studentClass" placeholder="예: 초등 4학년"></div>
+            <div class="form-field"><label>부모님 이름</label><input type="text" id="parentName" placeholder="예: 홍부모"></div>
+            <div class="form-field"><label>부모님 핸드폰 *</label><input type="tel" id="parentPhone" placeholder="01012345678" maxlength="11" oninput="onPhoneInput()"></div>
+            <div class="form-field">
+              <label>PIN (4자리)</label>
+              <input type="text" id="studentPin" placeholder="자동 생성됨" maxlength="4" pattern="[0-9]*" inputmode="numeric">
+              <small>부모 핸드폰 뒤 4자리 자동. 형제자매면 변경.</small>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="saveStudent()">저장</button>
+            <button class="btn btn-secondary" onclick="resetStudentForm()">초기화</button>
+          </div>
+        </div>
+      </div>
+      <div class="admin-section">
+        <h3>👥 등록된 학생 (<span id="studentCount">0</span>명)
+          <input type="text" id="searchInput" placeholder="🔍 검색" oninput="renderStudents()" style="font-size:13px;padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;width:180px;">
+        </h3>
+        <table class="student-table">
+          <thead><tr><th>이름</th><th>반</th><th>부모님</th><th>핸드폰</th><th>PIN</th><th>관리</th></tr></thead>
+          <tbody id="studentTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-pane" data-pane="log" hidden>
+      <div class="admin-section">
+        <h3>📜 전체 출결 로그
+          <span>
+            <input type="date" id="logDateFilter" onchange="renderFullLog()" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;">
+            <button class="btn btn-sm btn-secondary" onclick="document.getElementById('logDateFilter').value='';renderFullLog()">전체</button>
+            <button class="btn btn-sm btn-secondary" onclick="exportLogCsv()">CSV 내보내기</button>
+          </span>
+        </h3>
+        <div class="log-list" id="fullLogList"></div>
+      </div>
+    </div>
+
+    <div class="tab-pane" data-pane="settings" hidden>
+      <div class="admin-section">
+        <h3>⚙️ 학원 정보</h3>
+        <div class="form-grid">
+          <div class="form-field"><label>학원 이름 *</label><input type="text" id="settingAcademyName"></div>
+          <div class="form-field"><label>관리자 PIN (4자리)</label><input type="text" id="settingAdminPin" maxlength="4" pattern="[0-9]*" inputmode="numeric"></div>
+        </div>
+      </div>
+      <div class="admin-section">
+        <h3>💬 SMS 메시지 템플릿</h3>
+        <div class="form-field">
+          <label>템플릿 (변수: <code>{학원명}</code>, <code>{학생명}</code>, <code>{시간}</code>)</label>
+          <textarea id="settingTemplate" rows="3" oninput="updatePreview()"></textarea>
+          <small>예시: <span id="templatePreview"></span></small>
+          <small id="templateMeta"></small>
+        </div>
+      </div>
+      <div class="admin-section">
+        <h3>⏱️ 중복 방지</h3>
+        <div class="form-field">
+          <label>같은 학생 연속 입력 시 중복 알림 방지</label>
+          <select id="settingThrottle">
+            <option value="0">사용 안 함</option>
+            <option value="5">5분</option>
+            <option value="15">15분</option>
+            <option value="30" selected>30분 (권장)</option>
+            <option value="60">1시간</option>
+            <option value="180">3시간</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="saveSettings()">설정 저장</button>
+    </div>
+
+    <div class="tab-pane" data-pane="auto" hidden>
+      <div class="admin-section">
+        <h3>🚀 자동 발송 모드 (V2)</h3>
+        <div class="help-box">
+          <strong>자동 발송 모드 ON</strong>: 학생이 PIN 입력 즉시 알리고 API로 자동 발송.<br>
+          <strong>OFF</strong>: 메시지가 "보내야 할 SMS" 목록에 쌓임. 학원장님이 수동 발송.
+        </div>
+        <div class="form-field" style="flex-direction:row;align-items:center;gap:12px;">
+          <label class="switch"><input type="checkbox" id="autoModeToggle"><span class="slider"></span></label>
+          <span><strong id="autoModeLabel">자동 발송 OFF</strong></span>
+        </div>
+      </div>
+
+      <div class="admin-section" id="autoSettings">
+        <h3>🔗 Vercel API 연결</h3>
+        <div class="form-field">
+          <label>API URL *</label>
+          <input type="url" id="settingApiUrl" placeholder="https://xxx.vercel.app">
+          <small>Vercel 배포 후 발급받은 도메인. <code>https://</code>로 시작.</small>
+        </div>
+        <div class="form-field">
+          <label>API 인증 토큰 *</label>
+          <input type="password" id="settingApiToken" placeholder="비밀 토큰">
+          <small>Vercel 환경변수 <code>AUTH_TOKEN</code>과 동일한 값. 학원장님이 정한 비밀 문자열.</small>
+        </div>
+        <div class="form-field">
+          <label>발송 방식</label>
+          <select id="settingSendType">
+            <option value="sms">SMS만 (기본)</option>
+            <option value="alimtalk">알림톡 (템플릿 승인 후)</option>
+          </select>
+          <small>알림톡 모드는 Vercel <code>ALIMTALK_TEMPLATE_CODE</code> 환경변수 설정 필요.</small>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary" onclick="saveAutoSettings()">자동발송 설정 저장</button>
+          <button class="btn btn-secondary" onclick="testApi()">🧪 연결 테스트</button>
+          <button class="btn btn-secondary" onclick="checkBalance()">💰 잔액 조회</button>
+        </div>
+        <div id="autoTestResult" style="margin-top:12px;"></div>
+      </div>
+
+      <div class="admin-section">
+        <h3>📖 자동 발송 모드 작동 방식</h3>
+        <div style="font-size:14px;line-height:1.7;">
+          1. 학생이 PIN 입력 → 전송<br>
+          2. 키오스크가 Vercel API에 발송 요청<br>
+          3. Vercel이 알리고 API로 SMS/알림톡 발송<br>
+          4. 부모님 폰에 도착 (3~5초)<br>
+          5. 키오스크 화면에 "발송 완료" 표시
+        </div>
+      </div>
+
+      <div class="admin-section">
+        <h3>⚠️ 자동 발송 안 될 때</h3>
+        <div style="font-size:14px;line-height:1.7;">
+          • 인터넷 연결 확인<br>
+          • API URL과 토큰이 정확한지 ⚙️ → 자동발송에서 확인<br>
+          • Vercel 환경변수 (ALIGO_API_KEY, ALIGO_USER_ID, ALIGO_SENDER, AUTH_TOKEN) 점검<br>
+          • 알리고 잔액 확인 ("잔액 조회" 버튼)<br>
+          • 자동 모드 OFF로 잠시 전환 후 수동 발송<br>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-pane" data-pane="backup" hidden>
+      <div class="admin-section">
+        <h3>💾 데이터 백업</h3>
+        <div class="help-box">데이터는 이 브라우저에만 저장돼요. 매주 백업 권장.</div>
+        <button class="btn btn-primary" onclick="exportBackup()">📥 백업 다운로드</button>
+      </div>
+      <div class="admin-section">
+        <h3>♻️ 데이터 복구</h3>
+        <input type="file" id="backupFile" accept=".json" onchange="importBackup(event)">
+      </div>
+      <div class="admin-section">
+        <h3 style="color:#dc2626;">⚠️ 데이터 초기화</h3>
+        <button class="btn btn-danger" onclick="resetAllData()">모든 데이터 삭제</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const STORAGE = { students: 'attendance.students', events: 'attendance.events', settings: 'attendance.settings' };
+const DEFAULT_SETTINGS = {
+  academyName: '○○학원',
+  messageTemplate: '[{학원명}] {학생명} 등원 {시간}',
+  adminPin: '8888',
+  throttleMinutes: 30,
+  autoMode: false,
+  apiUrl: '',
+  apiToken: '',
+  sendType: 'sms'
+};
+
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 9); }
+function loadStudents() { try { return JSON.parse(localStorage.getItem(STORAGE.students) || '[]'); } catch { return []; } }
+function saveStudents(s) { localStorage.setItem(STORAGE.students, JSON.stringify(s)); }
+function loadEvents() { try { return JSON.parse(localStorage.getItem(STORAGE.events) || '[]'); } catch { return []; } }
+function saveEvents(e) { localStorage.setItem(STORAGE.events, JSON.stringify(e)); }
+function loadSettings() {
+  try { const s = JSON.parse(localStorage.getItem(STORAGE.settings) || '{}'); return { ...DEFAULT_SETTINGS, ...s }; }
+  catch { return { ...DEFAULT_SETTINGS }; }
+}
+function saveSettingsRaw(s) { localStorage.setItem(STORAGE.settings, JSON.stringify(s)); }
+
+function tickClock() {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
+  const timeStr = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  const el = document.getElementById('clock');
+  if (el) el.textContent = dateStr + ' ' + timeStr;
+}
+tickClock(); setInterval(tickClock, 1000);
+
+let pin = '';
+const dots = document.querySelectorAll('#pinDisplay .pin-dot');
+const submitBtn = document.getElementById('submitBtn');
+
+function updateDisplay() {
+  dots.forEach((dot, i) => {
+    if (i < pin.length) { dot.textContent = pin[i]; dot.classList.add('filled'); }
+    else { dot.textContent = ''; dot.classList.remove('filled'); }
+  });
+  submitBtn.disabled = pin.length !== 4;
+}
+
+document.querySelectorAll('#kiosk-mode .key').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const k = btn.dataset.key;
+    if (k === 'back') pin = pin.slice(0, -1);
+    else if (k === 'clear') pin = '';
+    else if (pin.length < 4) pin += k;
+    updateDisplay();
+  });
+});
+submitBtn.addEventListener('click', handleSubmit);
+
+function handleSubmit() {
+  const students = loadStudents();
+  const matches = students.filter(s => s.pin === pin);
+  if (matches.length === 0) {
+    showResult('error', '✕', '등록되지 않은 번호', `${pin}번호는 등록되지 않았어요.<br>학원 선생님께 문의해주세요.`);
+  } else if (matches.length === 1) {
+    processAttendance(matches[0]);
+  } else {
+    showStudentSelector(matches);
+  }
+}
+
+function showStudentSelector(students) {
+  const card = document.getElementById('resultCard');
+  card.innerHTML = `
+    <div class="result-icon warn">👨‍👩‍👧</div>
+    <div class="result-title">누구인가요?</div>
+    <div class="result-detail">같은 번호 학생이 여러 명이에요.</div>
+    <div class="student-list">
+      ${students.map(s => `<div class="student-option" data-id="${s.id}">
+        <div class="student-name">${escapeHtml(s.name)}</div>
+        <div class="student-class">${escapeHtml(s.className || '')}</div>
+      </div>`).join('')}
+    </div>`;
+  document.getElementById('overlay').classList.add('active');
+  card.querySelectorAll('.student-option').forEach(el => {
+    el.addEventListener('click', () => {
+      const s = students.find(x => x.id === el.dataset.id);
+      processAttendance(s);
+    });
+  });
+}
+
+async function processAttendance(student) {
+  const settings = loadSettings();
+  const now = new Date();
+  const events = loadEvents();
+
+  // throttle 체크
+  const throttleMs = settings.throttleMinutes * 60 * 1000;
+  const recentEvent = events
+    .filter(e => e.studentId === student.id && !e.throttled)
+    .sort((a, b) => b.occurredAt - a.occurredAt)[0];
+  let isThrottled = false;
+  if (throttleMs > 0 && recentEvent) {
+    if (now.getTime() - recentEvent.occurredAt < throttleMs) isThrottled = true;
+  }
+
+  const messageBody = renderTemplate(settings.messageTemplate, student, now, settings.academyName);
+  const event = {
+    id: uid(),
+    studentId: student.id,
+    studentName: student.name,
+    parentPhone: student.parentPhone,
+    occurredAt: now.getTime(),
+    throttled: isThrottled,
+    smsStatus: isThrottled ? 'skipped' : (settings.autoMode ? 'sending' : 'pending'),
+    smsBody: isThrottled ? '' : messageBody,
+    idempotencyKey: uid()
+  };
+  events.push(event);
+  saveEvents(events);
+
+  if (isThrottled) {
+    const minutesAgo = Math.floor((now.getTime() - recentEvent.occurredAt) / 60000);
+    showResult('info', 'ℹ', '이미 등원 처리됨',
+      `${student.name} 학생은 ${minutesAgo}분 전에 등원하셨어요.`, true);
+    return;
+  }
+
+  // 자동 모드: API 호출
+  if (settings.autoMode && settings.apiUrl && settings.apiToken) {
+    showSendingState(student);
+    try {
+      const result = await callSendApi({
+        apiUrl: settings.apiUrl,
+        apiToken: settings.apiToken,
+        phone: student.parentPhone,
+        message: messageBody,
+        studentName: student.name,
+        type: settings.sendType,
+        idempotencyKey: event.idempotencyKey
+      });
+
+      // 이벤트 상태 업데이트
+      const eventsNow = loadEvents();
+      const idx = eventsNow.findIndex(x => x.id === event.id);
+      if (idx >= 0) {
+        if (result.ok) {
+          eventsNow[idx].smsStatus = 'sent';
+          eventsNow[idx].sentAt = Date.now();
+          eventsNow[idx].apiResponse = result;
+        } else {
+          eventsNow[idx].smsStatus = 'failed';
+          eventsNow[idx].lastError = result.error;
+        }
+        saveEvents(eventsNow);
+      }
+
+      if (result.ok) {
+        showAutoSuccess(student, messageBody, result);
+      } else {
+        showAutoFailure(student, result.error);
+      }
+    } catch (err) {
+      const eventsNow = loadEvents();
+      const idx = eventsNow.findIndex(x => x.id === event.id);
+      if (idx >= 0) {
+        eventsNow[idx].smsStatus = 'failed';
+        eventsNow[idx].lastError = err.message;
+        saveEvents(eventsNow);
+      }
+      showAutoFailure(student, err.message);
+    }
+    return;
+  }
+
+  // 수동 모드: 메시지 미리보기
+  showManualPreview(student, messageBody);
+}
+
+async function callSendApi({ apiUrl, apiToken, phone, message, studentName, type, idempotencyKey }) {
+  const url = apiUrl.replace(/\/$/, '') + '/api/send';
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + apiToken
+    },
+    body: JSON.stringify({ phone, message, studentName, type, idempotencyKey })
+  });
+  return await response.json();
+}
+
+function showSendingState(student) {
+  const card = document.getElementById('resultCard');
+  card.innerHTML = `
+    <div class="result-icon sending">⏳</div>
+    <div class="result-title">${escapeHtml(student.name)} 학생, 등원!</div>
+    <div class="result-detail">부모님께 알림 발송 중...</div>`;
+  document.getElementById('overlay').classList.add('active');
+}
+
+function showAutoSuccess(student, messageBody, result) {
+  const card = document.getElementById('resultCard');
+  const balance = result.balance ? `<div class="sms-preview-meta" style="margin-top:8px;">알리고 잔여: SMS ${result.balance}건</div>` : '';
+  card.innerHTML = `
+    <div class="result-icon success">✓</div>
+    <div class="result-title">${escapeHtml(student.name)} 학생, 등원 완료!</div>
+    <div class="result-detail">부모님께 알림이 발송되었습니다.</div>
+    <div class="sms-preview">
+      <div class="sms-preview-label">📱 ${formatPhone(student.parentPhone)} 발송 완료</div>
+      <div class="sms-preview-content">${escapeHtml(messageBody)}</div>
+      ${balance}
+    </div>
+    <div class="countdown" id="countdown">3초 후 초기화</div>`;
+  let s = 3;
+  const cdEl = document.getElementById('countdown');
+  const interval = setInterval(() => {
+    s--;
+    if (cdEl) cdEl.textContent = `${s}초 후 초기화`;
+    if (s <= 0) { clearInterval(interval); resetKiosk(); }
+  }, 1000);
+}
+
+function showAutoFailure(student, errorMsg) {
+  const card = document.getElementById('resultCard');
+  card.innerHTML = `
+    <div class="result-icon error">!</div>
+    <div class="result-title">발송 실패</div>
+    <div class="result-detail">${escapeHtml(student.name)} 학생 등원은 기록되었지만,<br>SMS 발송이 실패했어요.</div>
+    <div class="sms-preview" style="background:#fef2f2;border-color:#fca5a5;">
+      <div class="sms-preview-label" style="color:#991b1b;">⚠️ 오류 상세</div>
+      <div class="sms-preview-content" style="color:#7f1d1d;">${escapeHtml(errorMsg || '알 수 없는 오류')}</div>
+    </div>
+    <div style="margin-top:12px;font-size:13px;color:#64748b;">관리자 화면 → 오늘 현황에서 수동 발송 가능</div>
+    <div class="countdown">5초 후 초기화</div>`;
+  setTimeout(resetKiosk, 5000);
+}
+
+function showManualPreview(student, messageBody) {
+  const card = document.getElementById('resultCard');
+  card.innerHTML = `
+    <div class="result-icon success">✓</div>
+    <div class="result-title">${escapeHtml(student.name)} 학생, 등원!</div>
+    <div class="result-detail">부모님께 전송될 메시지가 준비되었어요.</div>
+    <div class="sms-preview">
+      <div class="sms-preview-label">📱 ${formatPhone(student.parentPhone)}</div>
+      <div class="sms-preview-content">${escapeHtml(messageBody)}</div>
+      <div class="sms-preview-meta">${messageBody.length}자 · ${messageBody.length > 45 ? 'LMS' : 'SMS'}</div>
+    </div>
+    <div class="countdown" id="countdown">3초 후 초기화</div>`;
+  document.getElementById('overlay').classList.add('active');
+  let s = 3;
+  const cdEl = document.getElementById('countdown');
+  const interval = setInterval(() => {
+    s--;
+    if (cdEl) cdEl.textContent = `${s}초 후 초기화`;
+    if (s <= 0) { clearInterval(interval); resetKiosk(); }
+  }, 1000);
+}
+
+function showResult(type, icon, title, detail, autoReset = true) {
+  const card = document.getElementById('resultCard');
+  card.innerHTML = `<div class="result-icon ${type}">${icon}</div><div class="result-title">${title}</div><div class="result-detail">${detail}</div><div class="countdown">3초 후 다시 시도</div>`;
+  document.getElementById('overlay').classList.add('active');
+  if (autoReset) setTimeout(resetKiosk, 3000);
+}
+
+function resetKiosk() {
+  pin = '';
+  updateDisplay();
+  document.getElementById('overlay').classList.remove('active');
+}
+
+function renderTemplate(tpl, student, date, academyName) {
+  const timeStr = date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return tpl.replace(/\{학원명\}/g, academyName).replace(/\{학생명\}/g, student.name).replace(/\{시간\}/g, timeStr);
+}
+
+function formatPhone(p) {
+  if (!p) return '';
+  if (p.length === 11) return p.slice(0,3) + '-' + p.slice(3,7) + '-' + p.slice(7);
+  if (p.length === 10) return p.slice(0,3) + '-' + p.slice(3,6) + '-' + p.slice(6);
+  return p;
+}
+
+function escapeHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+}
+
+// 관리자 로그인
+let adminPin = '';
+const adminDots = document.querySelectorAll('#adminLoginOverlay .pin-dot');
+function openAdminLogin() {
+  adminPin = ''; updateAdminDisplay();
+  document.getElementById('adminLoginOverlay').classList.add('active');
+}
+function updateAdminDisplay() {
+  adminDots.forEach((dot, i) => {
+    if (i < adminPin.length) { dot.textContent = '•'; dot.classList.add('filled'); }
+    else { dot.textContent = ''; dot.classList.remove('filled'); }
+  });
+}
+document.querySelectorAll('#adminLoginOverlay .key').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const k = btn.dataset.adminKey;
+    if (k === 'cancel') { adminPin = ''; document.getElementById('adminLoginOverlay').classList.remove('active'); return; }
+    if (k === 'clear') adminPin = '';
+    else if (adminPin.length < 4) adminPin += k;
+    updateAdminDisplay();
+    if (adminPin.length === 4) {
+      const settings = loadSettings();
+      if (adminPin === settings.adminPin) {
+        document.getElementById('adminLoginOverlay').classList.remove('active');
+        openAdmin();
+      } else {
+        toast('비밀번호가 틀렸어요'); adminPin = ''; updateAdminDisplay();
+      }
+    }
+  });
+});
+
+function openAdmin() {
+  document.getElementById('adminPanel').classList.add('active');
+  switchTab('dashboard'); renderAll();
+}
+function closeAdmin() { document.getElementById('adminPanel').classList.remove('active'); }
+
+document.querySelectorAll('.admin-tab').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+function switchTab(name) {
+  document.querySelectorAll('.admin-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.tab-pane').forEach(p => p.hidden = p.dataset.pane !== name);
+  if (name === 'dashboard') renderDashboard();
+  if (name === 'students') renderStudents();
+  if (name === 'log') renderFullLog();
+  if (name === 'settings') loadSettingsToForm();
+  if (name === 'auto') loadAutoSettingsToForm();
+}
+
+function renderDashboard() {
+  const events = loadEvents();
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayMs = today.getTime(); const tomorrowMs = todayMs + 86400000;
+  const todayEvents = events.filter(e => e.occurredAt >= todayMs && e.occurredAt < tomorrowMs);
+  const sentCount = todayEvents.filter(e => e.smsStatus === 'sent').length;
+  const pendingCount = todayEvents.filter(e => e.smsStatus === 'pending').length;
+  const failedCount = todayEvents.filter(e => e.smsStatus === 'failed').length;
+  const throttledCount = todayEvents.filter(e => e.throttled).length;
+  const settings = loadSettings();
+
+  document.getElementById('statsGrid').innerHTML = `
+    <div class="stat-card"><div class="stat-value">${todayEvents.length}</div><div class="stat-label">오늘 등원</div></div>
+    <div class="stat-card"><div class="stat-value" style="color:#059669">${sentCount}</div><div class="stat-label">발송 완료</div></div>
+    <div class="stat-card"><div class="stat-value" style="color:#d97706">${pendingCount}</div><div class="stat-label">발송 대기</div></div>
+    ${failedCount > 0 ? `<div class="stat-card"><div class="stat-value" style="color:#dc2626">${failedCount}</div><div class="stat-label">발송 실패</div></div>` : ''}
+    <div class="stat-card"><div class="stat-value" style="color:#94a3b8">${throttledCount}</div><div class="stat-label">중복 차단</div></div>`;
+
+  const sortedToday = [...todayEvents].sort((a,b) => b.occurredAt - a.occurredAt);
+  const todayLogEl = document.getElementById('todayLog');
+  if (sortedToday.length === 0) {
+    todayLogEl.innerHTML = '<div class="empty-state">오늘 등원 학생 없음</div>';
+  } else {
+    todayLogEl.innerHTML = sortedToday.map(e => {
+      const t = new Date(e.occurredAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+      let lbl, sty;
+      if (e.smsStatus === 'sent') { lbl = '✓ 발송완료'; sty = 'background:#d1fae5;color:#059669'; }
+      else if (e.smsStatus === 'pending') { lbl = '대기'; sty = 'background:#fef3c7;color:#d97706'; }
+      else if (e.smsStatus === 'failed') { lbl = '✕ 실패'; sty = 'background:#fee2e2;color:#dc2626'; }
+      else if (e.smsStatus === 'sending') { lbl = '⏳ 발송중'; sty = 'background:#dbeafe;color:#2563eb'; }
+      else if (e.throttled) { lbl = '중복'; sty = 'background:#f1f5f9;color:#64748b'; }
+      else { lbl = '?'; sty = ''; }
+      return `<div class="log-entry"><div class="log-time">${t}</div><div class="log-name">${escapeHtml(e.studentName)}</div><div class="log-status" style="${sty}">${lbl}</div></div>`;
+    }).join('');
+  }
+
+  // 발송 대기 (수동 모드)
+  const pendingSection = document.getElementById('pendingSmsSection');
+  if (settings.autoMode) { pendingSection.style.display = 'none'; }
+  else {
+    pendingSection.style.display = '';
+    const pending = todayEvents.filter(e => e.smsStatus === 'pending').sort((a,b) => b.occurredAt - a.occurredAt);
+    const pendingEl = document.getElementById('pendingSms');
+    if (pending.length === 0) pendingEl.innerHTML = '<div class="empty-state">✅ 발송 대기 SMS 없음</div>';
+    else {
+      pendingEl.innerHTML = pending.map(e => {
+        const t = new Date(e.occurredAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+        return `<div style="padding:14px 16px;border-bottom:1px solid #f1f5f9;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <strong>${escapeHtml(e.studentName)} (${t})</strong>
+            <span style="font-size:13px;color:#64748b;">${formatPhone(e.parentPhone)}</span>
+          </div>
+          <div class="sms-preview">
+            <div class="sms-preview-content">${escapeHtml(e.smsBody)}</div>
+            <div class="sms-actions">
+              <button class="sms-action-btn" onclick="copySms('${e.id}')">📋 복사</button>
+              <button class="sms-action-btn" onclick="copyPhone('${e.id}')">📞 번호</button>
+              <button class="sms-action-btn" onclick="markSent('${e.id}')" style="border-color:#059669;color:#059669;">✓ 발송완료</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  // 발송 실패 섹션 (자동 모드 전용)
+  const failedSection = document.getElementById('failedSmsSection');
+  const failed = todayEvents.filter(e => e.smsStatus === 'failed');
+  if (failed.length === 0) failedSection.hidden = true;
+  else {
+    failedSection.hidden = false;
+    document.getElementById('failedSms').innerHTML = failed.sort((a,b) => b.occurredAt - a.occurredAt).map(e => {
+      const t = new Date(e.occurredAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+      return `<div style="padding:14px 16px;border-bottom:1px solid #f1f5f9;">
+        <div><strong>${escapeHtml(e.studentName)} (${t})</strong> ${formatPhone(e.parentPhone)}</div>
+        <div style="font-size:12px;color:#dc2626;margin-top:4px;">${escapeHtml(e.lastError || '알 수 없는 오류')}</div>
+        <div class="sms-actions" style="margin-top:8px;">
+          <button class="sms-action-btn" onclick="retrySend('${e.id}')" style="border-color:#0284c7;color:#0284c7;">🔄 재시도</button>
+          <button class="sms-action-btn" onclick="copySms('${e.id}')">📋 메시지 복사 (수동발송)</button>
+          <button class="sms-action-btn" onclick="markSent('${e.id}')" style="border-color:#059669;color:#059669;">✓ 수동발송 완료</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+}
+
+window.copySms = function(id) {
+  const e = loadEvents().find(x => x.id === id);
+  if (e) navigator.clipboard.writeText(e.smsBody).then(() => toast('메시지 복사됨'));
+};
+window.copyPhone = function(id) {
+  const e = loadEvents().find(x => x.id === id);
+  if (e) navigator.clipboard.writeText(e.parentPhone).then(() => toast('번호 복사됨'));
+};
+window.markSent = function(id) {
+  const events = loadEvents();
+  const e = events.find(x => x.id === id);
+  if (e) { e.smsStatus = 'sent'; e.sentAt = Date.now(); saveEvents(events); renderDashboard(); toast('발송 완료'); }
+};
+window.retrySend = async function(id) {
+  const settings = loadSettings();
+  if (!settings.autoMode || !settings.apiUrl || !settings.apiToken) {
+    toast('자동 모드 설정 필요'); return;
+  }
+  const events = loadEvents();
+  const e = events.find(x => x.id === id);
+  if (!e) return;
+  toast('재시도 중...');
+  e.smsStatus = 'sending'; saveEvents(events); renderDashboard();
+  try {
+    const result = await callSendApi({
+      apiUrl: settings.apiUrl, apiToken: settings.apiToken,
+      phone: e.parentPhone, message: e.smsBody, studentName: e.studentName,
+      type: settings.sendType, idempotencyKey: e.idempotencyKey || uid()
+    });
+    const evNow = loadEvents();
+    const idx = evNow.findIndex(x => x.id === id);
+    if (idx >= 0) {
+      if (result.ok) { evNow[idx].smsStatus = 'sent'; evNow[idx].sentAt = Date.now(); toast('재시도 성공'); }
+      else { evNow[idx].smsStatus = 'failed'; evNow[idx].lastError = result.error; toast('재시도 실패: ' + result.error); }
+      saveEvents(evNow);
+    }
+  } catch (err) {
+    toast('재시도 오류: ' + err.message);
+  }
+  renderDashboard();
+};
+
+// 학생 관리
+function onPhoneInput() {
+  const phone = document.getElementById('parentPhone').value.replace(/\D/g, '');
+  document.getElementById('parentPhone').value = phone;
+  const pinEl = document.getElementById('studentPin');
+  if (!pinEl.dataset.manual && phone.length >= 4) pinEl.value = phone.slice(-4);
+}
+document.getElementById('studentPin').addEventListener('input', (e) => {
+  e.target.value = e.target.value.replace(/\D/g, '');
+  if (e.target.value) e.target.dataset.manual = '1'; else delete e.target.dataset.manual;
+});
+function saveStudent() {
+  const id = document.getElementById('studentId').value;
+  const name = document.getElementById('studentName').value.trim();
+  const className = document.getElementById('studentClass').value.trim();
+  const parentName = document.getElementById('parentName').value.trim();
+  const parentPhone = document.getElementById('parentPhone').value.replace(/\D/g, '');
+  let pinVal = document.getElementById('studentPin').value.trim();
+  if (!name) return toast('학생 이름을 입력하세요');
+  if (!parentPhone || parentPhone.length < 10) return toast('부모님 핸드폰을 정확히 입력하세요');
+  if (!pinVal) pinVal = parentPhone.slice(-4);
+  if (pinVal.length !== 4 || !/^\d{4}$/.test(pinVal)) return toast('PIN은 숫자 4자리');
+  const students = loadStudents();
+  const isNew = !id;
+  if (isNew) {
+    students.push({ id: uid(), name, className, parentName, parentPhone, pin: pinVal, pinOverridden: pinVal !== parentPhone.slice(-4), createdAt: Date.now() });
+  } else {
+    const idx = students.findIndex(s => s.id === id);
+    if (idx >= 0) students[idx] = { ...students[idx], name, className, parentName, parentPhone, pin: pinVal, pinOverridden: pinVal !== parentPhone.slice(-4) };
+  }
+  saveStudents(students); toast(isNew ? '추가됨' : '수정됨'); resetStudentForm(); renderStudents();
+}
+function resetStudentForm() {
+  ['studentId','studentName','studentClass','parentName','parentPhone','studentPin'].forEach(id => document.getElementById(id).value = '');
+  delete document.getElementById('studentPin').dataset.manual;
+}
+window.editStudent = function(id) {
+  const s = loadStudents().find(x => x.id === id); if (!s) return;
+  document.getElementById('studentId').value = s.id;
+  document.getElementById('studentName').value = s.name || '';
+  document.getElementById('studentClass').value = s.className || '';
+  document.getElementById('parentName').value = s.parentName || '';
+  document.getElementById('parentPhone').value = s.parentPhone || '';
+  const pinEl = document.getElementById('studentPin');
+  pinEl.value = s.pin || '';
+  if (s.pinOverridden) pinEl.dataset.manual = '1';
+  document.getElementById('studentForm').scrollIntoView({ behavior: 'smooth' });
+};
+window.deleteStudent = function(id) {
+  const s = loadStudents().find(x => x.id === id); if (!s) return;
+  if (!confirm(`${s.name} 학생 삭제?`)) return;
+  saveStudents(loadStudents().filter(x => x.id !== id));
+  toast('삭제됨'); renderStudents();
+};
+function renderStudents() {
+  const students = loadStudents();
+  const search = (document.getElementById('searchInput')?.value || '').trim().toLowerCase();
+  const filtered = search ? students.filter(s => (s.name || '').toLowerCase().includes(search) || (s.className || '').toLowerCase().includes(search)) : students;
+  document.getElementById('studentCount').textContent = students.length;
+  const pinCount = {}; students.forEach(s => { pinCount[s.pin] = (pinCount[s.pin] || 0) + 1; });
+  const tbody = document.getElementById('studentTableBody');
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${search ? '검색 결과 없음' : '아직 학생이 없어요'}</td></tr>`; return;
+  }
+  tbody.innerHTML = filtered.map(s => `<tr>
+    <td><strong>${escapeHtml(s.name)}</strong></td>
+    <td>${escapeHtml(s.className || '-')}</td>
+    <td>${escapeHtml(s.parentName || '-')}</td>
+    <td>${formatPhone(s.parentPhone)}</td>
+    <td><span class="pin-badge${pinCount[s.pin] > 1 ? ' collision' : ''}">${s.pin}${pinCount[s.pin] > 1 ? ' ⚠' : ''}</span></td>
+    <td><button class="btn btn-sm btn-secondary" onclick="editStudent('${s.id}')">수정</button> <button class="btn btn-sm btn-danger" onclick="deleteStudent('${s.id}')">삭제</button></td>
+  </tr>`).join('');
+}
+function toggleCsvImport() { const box = document.getElementById('csvImportBox'); box.hidden = !box.hidden; }
+function importCsv() {
+  const text = document.getElementById('csvText').value.trim();
+  if (!text) return toast('내용 비어있음');
+  const lines = text.split('\n').filter(l => l.trim());
+  const students = loadStudents();
+  let added = 0, skipped = 0;
+  for (const line of lines) {
+    const parts = line.split(',').map(p => p.trim());
+    const [name, parentName, parentPhoneRaw, className, customPin] = parts;
+    if (!name || !parentPhoneRaw) { skipped++; continue; }
+    const parentPhone = parentPhoneRaw.replace(/\D/g, '');
+    if (parentPhone.length < 10) { skipped++; continue; }
+    const pinVal = (customPin && /^\d{4}$/.test(customPin)) ? customPin : parentPhone.slice(-4);
+    students.push({ id: uid(), name, className: className || '', parentName: parentName || '', parentPhone, pin: pinVal, pinOverridden: !!customPin, createdAt: Date.now() });
+    added++;
+  }
+  saveStudents(students);
+  toast(`${added}명 추가 ${skipped > 0 ? `(${skipped} 건너뜀)` : ''}`);
+  document.getElementById('csvText').value = ''; toggleCsvImport(); renderStudents();
+}
+
+function renderFullLog() {
+  const events = [...loadEvents()].sort((a, b) => b.occurredAt - a.occurredAt);
+  const filterDate = document.getElementById('logDateFilter').value;
+  let filtered = events;
+  if (filterDate) {
+    const start = new Date(filterDate); start.setHours(0,0,0,0);
+    filtered = events.filter(e => e.occurredAt >= start.getTime() && e.occurredAt < start.getTime() + 86400000);
+  }
+  const list = document.getElementById('fullLogList');
+  if (filtered.length === 0) { list.innerHTML = '<div class="empty-state">기록 없음</div>'; return; }
+  list.innerHTML = filtered.map(e => {
+    const d = new Date(e.occurredAt);
+    const ds = d.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
+    const t = d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+    let lbl, sty;
+    if (e.smsStatus === 'sent') { lbl = '✓ 발송'; sty = 'background:#d1fae5;color:#059669'; }
+    else if (e.smsStatus === 'pending') { lbl = '대기'; sty = 'background:#fef3c7;color:#d97706'; }
+    else if (e.smsStatus === 'failed') { lbl = '✕ 실패'; sty = 'background:#fee2e2;color:#dc2626'; }
+    else if (e.throttled) { lbl = '중복'; sty = 'background:#f1f5f9;color:#64748b'; }
+    else { lbl = '?'; sty = ''; }
+    return `<div class="log-entry"><div class="log-time">${ds} ${t}</div><div class="log-name">${escapeHtml(e.studentName)}</div><div class="log-status" style="${sty}">${lbl}</div></div>`;
+  }).join('');
+}
+function exportLogCsv() {
+  const events = [...loadEvents()].sort((a, b) => b.occurredAt - a.occurredAt);
+  if (events.length === 0) return toast('로그 없음');
+  const rows = [['일시','학생명','부모핸드폰','SMS상태','메시지']];
+  events.forEach(e => {
+    const d = new Date(e.occurredAt);
+    rows.push([d.toLocaleString('ko-KR'), e.studentName, formatPhone(e.parentPhone),
+      e.throttled ? '중복' : (e.smsStatus === 'sent' ? '발송' : (e.smsStatus === 'failed' ? '실패' : '대기')),
+      e.smsBody || '']);
+  });
+  const csv = '﻿' + rows.map(r => r.map(c => `"${(c||'').toString().replace(/"/g, '""')}"`).join(',')).join('\n');
+  downloadFile(csv, `출결로그_${new Date().toISOString().slice(0,10)}.csv`, 'text/csv;charset=utf-8');
+  toast('CSV 다운로드');
+}
+
+function loadSettingsToForm() {
+  const s = loadSettings();
+  document.getElementById('settingAcademyName').value = s.academyName;
+  document.getElementById('settingAdminPin').value = s.adminPin;
+  document.getElementById('settingTemplate').value = s.messageTemplate;
+  document.getElementById('settingThrottle').value = s.throttleMinutes;
+  updatePreview();
+}
+function updatePreview() {
+  const tpl = document.getElementById('settingTemplate').value;
+  const academy = document.getElementById('settingAcademyName').value || '○○학원';
+  const sample = renderTemplate(tpl, { name: '홍길동' }, new Date(), academy);
+  document.getElementById('templatePreview').textContent = sample;
+  const len = sample.length;
+  document.getElementById('templateMeta').textContent = `${len}자 · ${len > 45 ? 'LMS (~30원)' : 'SMS (~22원)'}`;
+}
+function saveSettings() {
+  const academyName = document.getElementById('settingAcademyName').value.trim();
+  const adminPinVal = document.getElementById('settingAdminPin').value.trim();
+  const messageTemplate = document.getElementById('settingTemplate').value.trim();
+  const throttleMinutes = parseInt(document.getElementById('settingThrottle').value);
+  if (!academyName) return toast('학원 이름 필수');
+  if (!/^\d{4}$/.test(adminPinVal)) return toast('PIN은 숫자 4자리');
+  if (!messageTemplate) return toast('템플릿 필수');
+  const current = loadSettings();
+  saveSettingsRaw({ ...current, academyName, adminPin: adminPinVal, messageTemplate, throttleMinutes });
+  toast('저장됨'); applySettingsToUi();
+}
+
+function loadAutoSettingsToForm() {
+  const s = loadSettings();
+  document.getElementById('autoModeToggle').checked = s.autoMode;
+  document.getElementById('settingApiUrl').value = s.apiUrl || '';
+  document.getElementById('settingApiToken').value = s.apiToken || '';
+  document.getElementById('settingSendType').value = s.sendType || 'sms';
+  updateAutoModeLabel();
+}
+document.getElementById('autoModeToggle').addEventListener('change', updateAutoModeLabel);
+function updateAutoModeLabel() {
+  const on = document.getElementById('autoModeToggle').checked;
+  document.getElementById('autoModeLabel').textContent = on ? '자동 발송 ON ✓' : '자동 발송 OFF (수동)';
+}
+function saveAutoSettings() {
+  const autoMode = document.getElementById('autoModeToggle').checked;
+  const apiUrl = document.getElementById('settingApiUrl').value.trim();
+  const apiToken = document.getElementById('settingApiToken').value.trim();
+  const sendType = document.getElementById('settingSendType').value;
+  if (autoMode && (!apiUrl || !apiToken)) {
+    toast('자동 모드 켜려면 API URL과 토큰 필요');
+    return;
+  }
+  const current = loadSettings();
+  saveSettingsRaw({ ...current, autoMode, apiUrl, apiToken, sendType });
+  toast('자동발송 설정 저장');
+  applySettingsToUi();
+}
+
+async function testApi() {
+  const apiUrl = document.getElementById('settingApiUrl').value.trim();
+  const apiToken = document.getElementById('settingApiToken').value.trim();
+  if (!apiUrl || !apiToken) return toast('URL과 토큰을 먼저 입력');
+  const resultEl = document.getElementById('autoTestResult');
+  resultEl.innerHTML = '<div style="color:#64748b;">테스트 중...</div>';
+  try {
+    const url = apiUrl.replace(/\/$/, '') + '/api/balance';
+    const res = await fetch(url, { method: 'GET', headers: { 'Authorization': 'Bearer ' + apiToken } });
+    const data = await res.json();
+    if (data.ok) {
+      resultEl.innerHTML = `<div style="background:#d1fae5;color:#047857;padding:10px;border-radius:6px;font-size:13px;">✓ 연결 성공! 알리고 잔여: SMS ${data.smsCount}건 / LMS ${data.lmsCount}건 / 잔액 ${data.totalKrw}원</div>`;
+    } else {
+      resultEl.innerHTML = `<div style="background:#fee2e2;color:#991b1b;padding:10px;border-radius:6px;font-size:13px;">✕ 실패: ${escapeHtml(data.error)}</div>`;
+    }
+  } catch (err) {
+    resultEl.innerHTML = `<div style="background:#fee2e2;color:#991b1b;padding:10px;border-radius:6px;font-size:13px;">✕ 연결 오류: ${escapeHtml(err.message)}<br><small>URL과 인터넷 연결 확인하세요</small></div>`;
+  }
+}
+
+async function checkBalance() { await testApi(); }
+
+function applySettingsToUi() {
+  const s = loadSettings();
+  document.getElementById('academyName').textContent = s.academyName;
+  document.getElementById('academyNameAdmin').textContent = s.academyName;
+  document.title = `${s.academyName} 출결`;
+  const badge = document.getElementById('modeBadge');
+  if (s.autoMode && s.apiUrl && s.apiToken) {
+    badge.textContent = '🚀 자동 발송';
+    badge.className = 'mode-badge auto';
+  } else {
+    badge.textContent = '📋 수동 발송';
+    badge.className = 'mode-badge manual';
+  }
+}
+
+function exportBackup() {
+  const data = { version: 1, exportedAt: new Date().toISOString(), students: loadStudents(), events: loadEvents(), settings: loadSettings() };
+  downloadFile(JSON.stringify(data, null, 2), `출결백업_${new Date().toISOString().slice(0,10)}.json`, 'application/json');
+  toast('백업 다운로드');
+}
+function importBackup(event) {
+  const file = event.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.version) throw new Error('잘못된 형식');
+      if (!confirm('현재 데이터를 덮어씁니다. 계속?')) return;
+      if (data.students) saveStudents(data.students);
+      if (data.events) saveEvents(data.events);
+      if (data.settings) saveSettingsRaw(data.settings);
+      toast('복구 완료'); applySettingsToUi(); renderAll();
+    } catch (err) { toast('오류: ' + err.message); }
+  };
+  reader.readAsText(file); event.target.value = '';
+}
+function resetAllData() {
+  if (!confirm('모든 데이터 삭제?')) return;
+  if (!confirm('정말로? 되돌릴 수 없음')) return;
+  Object.values(STORAGE).forEach(k => localStorage.removeItem(k));
+  toast('초기화'); applySettingsToUi(); renderAll();
+}
+function downloadFile(content, filename, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function toast(msg) {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  const el = document.createElement('div');
+  el.className = 'toast'; el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2200);
+}
+function renderAll() { applySettingsToUi(); renderDashboard(); renderStudents(); renderFullLog(); }
+
+applySettingsToUi();
+updateDisplay();
+
+if (loadStudents().length === 0 && !localStorage.getItem('attendance.welcomed')) {
+  setTimeout(() => {
+    if (confirm('처음 사용하시나요?\n관리자 화면(⚙️ → PIN: 8888)에서 학생 등록 및 자동발송 셋업하세요.')) openAdminLogin();
+    localStorage.setItem('attendance.welcomed', '1');
+  }, 800);
+}
+</script>
+</body>
+</html>

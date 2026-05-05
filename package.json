@@ -1,0 +1,9 @@
+{
+  "name": "attendance-vercel",
+  "version": "1.0.0",
+  "description": "학원 출결 자동 알림 시스템 - Vercel 배포용",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  }
+}
